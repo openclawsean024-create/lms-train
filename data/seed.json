@@ -1,0 +1,44 @@
+[
+  {
+    "id": "intro-nextjs",
+    "title": "Next.js 入門介紹",
+    "description": "Next.js 是 React 框架,用於建置全端網頁應用程式。本課程介紹核心概念與基礎用法。",
+    "youtubeUrl": "https://www.youtube.com/embed/N5T9-ppxUx4",
+    "createdAt": 1723958400000,
+    "questions": [
+      {
+        "id": "q1",
+        "prompt": "Next.js 是基於哪個 JavaScript 框架建構的?",
+        "choices": [
+          "Vue.js",
+          "React",
+          "Angular",
+          "Svelte"
+        ],
+        "answerIndex": 1
+      },
+      {
+        "id": "q2",
+        "prompt": "Next.js 的哪個功能讓你可以預先產生靜態網頁?",
+        "choices": [
+          "Server-Side Rendering (SSR)",
+          "Static Site Generation (SSG)",
+          "Client-Side Rendering (CSR)",
+          "Incremental Static Regeneration (ISR)"
+        ],
+        "answerIndex": 1
+      },
+      {
+        "id": "q3",
+        "prompt": "在 Next.js 14 App Router 中,頁面檔案應該放在哪個目錄?",
+        "choices": [
+          "pages/",
+          "src/pages/",
+          "app/",
+          "routes/"
+        ],
+        "answerIndex": 2
+      }
+    ]
+  }
+]
