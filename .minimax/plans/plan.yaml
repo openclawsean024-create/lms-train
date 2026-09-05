@@ -1,0 +1,481 @@
+version: 1
+plan:
+  name: 'lms-train M7 收尾 + 拾光風格重製'
+  max_concurrency: 2
+  max_consecutive_failures: 2
+  max_cycles: 8
+  auto_reject_retries: 1
+  verifier_config:
+    default_verifiers: [verifier]
+    audit_sample_rate: 0.0
+tasks:
+  # === T1: 設計系統落地 (基礎設施,後續所有頁面的合約) ===
+  - id: design-system
+    title: '建立拾光設計系統 (字型 + tokens + .tenet-* 元件)'
+    assigned_to: coder
+    verified_by: verifier
+    max_retries: 2
+    prompt: |
+      你在 /Users/sean/.minimax/workspace/lms-train-m7/ 這個 worktree 工作。
+      這是從 https://github.com/openclawsean024-create/lms-train clone 下來的,
+      npm install 已完成,typecheck/build 皆綠。
+
+      **先讀 /Users/sean/.minimax/workspace/lms-train-m7/DESIGN-SYSTEM.md**
+      這是整個 M7 的單一合約文件,所有顏色/字型/排版/元件規範都在裡面。
+
+      你的任務:把 DESIGN-SYSTEM.md 落地到程式碼,只做基礎設施,**不動任何 page.tsx**。
+
+      ## 必做事項
+
+      1. **app/layout.tsx** — 用 `next/font/google` 載入 6 個字型:
+         - DM_Serif_Display (display)
+         - Noto_Serif_TC (tc, weight 400/500/700)
+         - ZCOOL_XiaoWei (handwrite)
+         - Long_Cang (stamp)
+         - Special_Elite (mono-stamp)
+         - JetBrains_Mono (mono, weight 400/500)
+         每個都加 `variable: --font-*`,在 `<body>` 套上所有 variable class。
+         metadata 改成 `title: 'LMS Train · 拾光提案'` 與合適的 description。
+
+      2. **app/globals.css** — 完整重寫成兩層:
+         - **Layer A (頂部)**: `:root` 內所有 CSS 變數,照 DESIGN-SYSTEM §2。
+         - **Layer B (中段)**: 全域重置 (`html`, `body` 用 paper 底 + ink 字 + Noto Serif TC)。
+         - **Layer C (下段)**: `.tenet-*` 共用元件,照 DESIGN-SYSTEM §5
+           (chapter / stamp / footer / btn / input / textarea / card / corner / list / label)。
+         - **保留所有舊的頁面專屬 class (`.course-list`, `.video-wrap`, `.btn-primary`, `.score-circle`, `.stat-card`, `.result-item` 等) 完全不動** —
+           這樣 Task 2 才有空間做 incremental migration,中途 build 不會壞。
+
+      3. **app/page.module.css** — 新增空殼,等 Task 2 寫首頁時填。
+         (但 globals.css 不 import 任何 module,只放全域的東西。)
+
+      4. **驗證**:
+         - `npm run typecheck` 0 錯
+         - `npm run build` 成功
+         - `globals.css` 大小 < 14KB
+         - 啟動 dev server (`npm run dev` 背景跑) → curl `http://localhost:3000/` 仍 200 OK
+         - 首頁雖然視覺還沒換,但不應該壞。確認 5 個原有 class 還在,字型開始載入。
+
+      5. **git commit**:
+         ```
+         git add -A
+         git commit -m "M7-T1: 拾光設計系統 foundation (字型 + tokens + .tenet-* 元件)
+
+         - app/layout.tsx: 6 個 next/font 字型 (DM Serif Display / Noto Serif TC /
+           ZCOOL XiaoWei / Long Cang / Special Elite / JetBrains Mono)
+         - app/globals.css: 重寫成 tokens + .tenet-* 共用元件層,
+           保留所有舊的頁面專屬 class 供 incremental migration
+         - DESIGN-SYSTEM.md: 設計合約 (本檔由 orchestrator 預先建立)
+         "
+         ```
+
+      ## 絕對不要做
+      - ❌ 改任何 page.tsx (Task 2 的工作)
+      - ❌ 移除任何舊 CSS class
+      - ❌ 改 lib/db.ts 或任何 API route
+      - ❌ 用 `<link>` 寫字型,一定要 `next/font/google`
+      - ❌ 在 globals.css 寫 CJK 字串到 `content:"..."` (用 CSS hex escape 或避免)
+
+      ## 交付回報
+      列出:
+      - `app/layout.tsx` 改動行數
+      - `app/globals.css` 最終 size (bytes) 與 layer 結構
+      - 字型載入成功的證據 (curl 首頁 source 看 `<style>` 內有 font-family 引用)
+      - typecheck/build 結果
+      - commit hash
+    verify_prompt: |
+      你在 /Users/sean/.minimax/workspace/lms-train-m7/ 這個 worktree。
+      獨立檢查 Task 1 的交付,不要相信 worker 自述。
+
+      ## 檢查清單
+      1. **app/layout.tsx**:
+         - 必須有 6 個 `next/font/google` import
+         - 必須有 6 個變數宣告 (variable: --font-*)
+         - `<body>` 必須套上所有 variable class
+         - 沒有任何 `<link rel="stylesheet" href="https://fonts...">`
+
+      2. **app/globals.css**:
+         - `:root` 內必須有 DESIGN-SYSTEM §2 列出的所有 CSS 變數
+           (--ink, --paper, --paper-2, --paper-3, --gold, --gold-soft, --gold-bg,
+            --stamp, --stamp-soft, --rule, --rule-soft, --rule-faint, --ok, --err,
+            --font-display, --font-tc, --font-handwrite, --font-stamp,
+            --font-mono-stamp, --font-mono, --fs-*)
+         - 必須有 `.tenet-*` 共用元件 (至少: chapter, stamp, footer, btn, input, card)
+         - **所有舊 class 必須保留** (grep 至少要找到: .course-list, .video-wrap,
+           .btn-primary, .score-circle, .stat-card, .result-item, .qs-bar)
+         - file size < 14KB
+
+      3. **執行驗證**:
+         - `cd /Users/sean/.minimax/workspace/lms-train-m7 && npm run typecheck` → 0 錯
+         - `npm run build` → 成功
+         - `npm run dev` 背景啟動,curl `http://localhost:3000/` → 200 OK
+         - curl 拿回的 HTML 內 grep `--font-` 出現 6 次 (字型 variables 已套用)
+
+      4. **git log** 確認有 T1 commit,訊息符合 prompt 要求。
+
+      ## 輸出
+      對每項給 PASS/FAIL,FAIL 時說明確切缺什麼。
+      最後給整體 VERDICT: PASS | FAIL | PARTIAL。
+
+  # === T2: 5 個頁面全部重製 (Task 1 必須先 PASS) ===
+  - id: page-redesign
+    title: '5 個頁面全部套上拾光風格 (列表/作答/結果/管理/統計)'
+    assigned_to: coder
+    depends_on: [design-system]
+    verified_by: verifier
+    max_retries: 2
+    prompt: |
+      你在 /Users/sean/.minimax/workspace/lms-train-m7/ 這個 worktree。
+      設計系統已由 Task 1 建立 (globals.css tokens + .tenet-* 元件 + 字型)。
+
+      **先讀 /Users/sean/.minimax/workspace/lms-train-m7/DESIGN-SYSTEM.md §6**
+      裡面有每個頁面的細節規範。請嚴格遵守。
+
+      ## 必做事項 (5 個頁面 + 配套 CSS module)
+
+      1. **app/page.tsx** (課程列表) → 用 `app/page.module.css`
+      2. **app/c/[id]/page.tsx** (學員看課+答題) → `app/c/[id]/page.module.css`
+      3. **app/c/[id]/result/[subId]/page.tsx** (結果) → `app/c/[id]/result/[subId]/page.module.css`
+      4. **app/admin/page.tsx** (老師建課) → `app/admin/page.module.css`
+      5. **app/admin/c/[id]/stats/page.tsx** (統計儀表板) → `app/admin/c/[id]/stats/page.module.css`
+
+      每個頁面:
+      - 改寫 JSX 用 `.tenet-*` 共用元件 (來自 globals.css)
+      - 章節標用 `.tenet-chapter` 結構 (中式書卷感)
+      - 右上角自動帶浮水印 `.tenet-stamp` (用 globals.css 寫成 fixed positioned,所有頁面都有)
+      - 頁尾帶 `.tenet-footer` (印章字 + 設計提案字樣)
+      - 頁面專屬樣式寫在 `page.module.css`,從 globals.css import token (`var(--*)`)
+      - **.tenet-stamp 不在每頁 JSX 寫 — 改在 globals.css 用 `body::after` 或 fixed positioned body-level element 統一加,
+        否則 5 個頁面都加會亂。**(這是個架構決定,請這樣做。)
+
+      **每頁 JSX 結構範本**:
+      ```tsx
+      <main className="tenet-container tenet-container--narrow">
+        <div className="tenet-chapter">
+          <span className="tenet-chapter-num">第 〇 課</span>
+          <span className="tenet-chapter-title">{page-title}</span>
+        </div>
+        ... 內容 ...
+        <footer className="tenet-footer">— LMS Train · 拾光設計提案 · M7 —</footer>
+      </main>
+      ```
+
+      ## 完成後的清理
+
+      改完 5 頁後,從 `app/globals.css` **移除該頁用不到的舊 class**:
+      - `.course-list`, `.course-card`, `.course-title`, `.course-desc`, `.course-meta` (首頁用過)
+      - `.video-wrap` (學員看課用過)
+      - `.form`, `.field`, `.questions-fs`, `.question-block`, `.question-header`,
+        `.choices`, `.choice-row`, `.btn-link`, `.submit-row`, `.answered-count` (admin)
+      - `.result-summary`, `.score-circle`, `.score-num`, `.score-label`,
+        `.score-detail`, `.score-main`, `.score-email`, `.score-time`,
+        `.result-list`, `.result-item`, `.result-status`, `.result-q`,
+        `.result-answer`, `.ans-correct`, `.ans-wrong` (result)
+      - `.stats-summary`, `.stat-card`, `.stat-label`, `.stat-num`, `.stat-unit`,
+        `.question-stats`, `.question-stat`, `.qs-header`, `.qs-label`,
+        `.qs-rate`, `.qs-prompt`, `.qs-bar`, `.qs-bar-fill`, `.qs-meta` (stats)
+      - 保留: `.demo-note` (首頁還要用,但改寫成 .tenet-demo), `.hint` (或刪除),
+        `.back` (或併入 .tenet-back), `.nav` (或併入 .tenet-nav)
+      - 保留: `.btn-primary` → 改名 `.tenet-btn` 之前的過渡,**全部移除**並改用 .tenet-btn
+      - 保留: `.btn-secondary` 移除,改用 .tenet-btn--ghost
+      - 保留: `.msg-ok`, `.msg-err` 改寫成 .tenet-msg--ok / .tenet-msg--err
+      - 保留: `.hint-text` 改寫或移除
+      - 保留: `.container`, `.subtitle`, `.empty`, `.section`, `.section-title`, `.h1`
+        全部移除,改用 .tenet-container 與 .tenet-chapter
+
+      最後 globals.css 只剩:
+      - 頂部 `:root` tokens
+      - 中段全域 reset
+      - 下段 .tenet-* 元件
+      - 大小最終 < 12KB
+
+      ## 功能性 100% 保留
+      改完後**所有原功能必須正常**:
+      - `/` 列課程、點進課程
+      - `/c/[id]` 看 YouTube、輸入 Email、答題、提交、跳到結果頁
+      - `/c/[id]/result/[subId]` 看分數與對錯
+      - `/admin` 建課表單能新增/刪除題目、提交成功
+      - `/admin/c/[id]/stats` 看 KPI 卡 + 各題答對率
+      - 8 個 SPEC §驗收的 API endpoint 都還能 curl 通過
+
+      ## 驗證流程
+
+      ```bash
+      cd /Users/sean/.minimax/workspace/lms-train-m7
+      npm run typecheck              # 0 錯
+      npm run build                  # 成功
+      npm run dev &                  # 背景啟動
+      sleep 5
+      # 跑 SPEC 驗收的 8 個 curl
+      curl -sS -o /dev/null -w "%{http_code}\n" http://localhost:3000/
+      curl -sS -o /dev/null -w "%{http_code}\n" http://localhost:3000/c/intro-nextjs
+      curl -sS http://localhost:3000/api/courses | head -c 200
+      curl -sS -X POST http://localhost:3000/api/courses -H 'Content-Type: application/json' \
+        -d '{"title":"拾光測試","description":"d","youtubeUrl":"https://www.youtube.com/embed/xxx","questions":[{"id":"q1","prompt":"a","choices":["a","b","c","d"],"answerIndex":0},{"id":"q2","prompt":"a","choices":["a","b","c","d"],"answerIndex":0},{"id":"q3","prompt":"a","choices":["a","b","c","d"],"answerIndex":0}]}'
+      curl -sS -X POST http://localhost:3000/api/courses/intro-nextjs/submit -H 'Content-Type: application/json' \
+        -d '{"email":"test@x.com","answers":[0,0,0]}'
+      curl -sS -o /dev/null -w "%{http_code}\n" http://localhost:3000/admin/c/intro-nextjs/stats
+      # 截圖 5 頁 (用 webapp-testing skill 或 playwright CLI,或 Browser tool)
+      ```
+      截圖存到 `screenshots/` 目錄:
+      - `screenshots/01-home.png` (/)
+      - `screenshots/02-course.png` (/c/intro-nextjs)
+      - `screenshots/03-admin.png` (/admin)
+      - `screenshots/04-stats.png` (/admin/c/intro-nextjs/stats)
+      - `screenshots/05-result.png` (任一 submission 的 result page;需先 submit 一份)
+
+      ## git commit
+      ```
+      git add -A
+      git commit -m "M7-T2: 5 頁面套上拾光風格 (CSS modules + .tenet-*)
+
+      - app/page.tsx + page.module.css: 課程列表
+      - app/c/[id]/page.tsx + page.module.css: 學員看課+答題
+      - app/c/[id]/result/[subId]/page.tsx + page.module.css: 結果
+      - app/admin/page.tsx + page.module.css: 老師建課
+      - app/admin/c/[id]/stats/page.tsx + page.module.css: 統計儀表板
+      - app/globals.css: 移除所有頁面專屬舊 class,只剩 tokens + .tenet-* + 字型
+      - screenshots/: 5 張驗證截圖
+      "
+      ```
+
+      ## 交付回報
+      列出:
+      - 每個頁面改了什麼
+      - globals.css 最終 size 與移除的 class 數
+      - 8 個 curl 結果 (status code)
+      - 5 張截圖路徑
+      - commit hash
+    verify_prompt: |
+      你在 /Users/sean/.minimax/workspace/lms-train-m7/ 這個 worktree。
+      獨立檢查 Task 2 的交付。**不要相信 worker 自述,要用 curl/grep/screenshot 親自驗證。**
+
+      ## 必須 PASS 的檢查
+
+      1. **5 個 page.tsx 都改成 .tenet-* 架構**:
+         - 讀 5 個 page.tsx,確認有 `<div className="tenet-chapter">` 或等效章節標結構
+         - 確認有引用 `.tenet-container` 或同等的頁面容器 class
+         - 確認沒有任何剩餘的舊 class (`.course-list`, `.video-wrap`, `.btn-primary`,
+           `.score-circle`, `.stat-card`, `.result-item`, `.form`, `.field` 等)
+
+      2. **5 個 page.module.css 都存在** 且內含合理樣式 (用 `find` 確認檔案存在)
+
+      3. **globals.css 已清乾淨**:
+         - grep 確認移除所有頁面專屬舊 class
+         - 確認 `--*` tokens 與 `.tenet-*` 都在
+         - file size < 12KB
+
+      4. **功能完整性 (curl 實測)**:
+         ```
+         cd /Users/sean/.minimax/workspace/lms-train-m7
+         npm run typecheck
+         npm run build
+         npm run dev &; sleep 5
+         curl -sS -o /dev/null -w "/=%{http_code}\n" http://localhost:3000/
+         curl -sS -o /dev/null -w "/c/intro-nextjs=%{http_code}\n" http://localhost:3000/c/intro-nextjs
+         curl -sS -o /dev/null -w "/api/courses=%{http_code}\n" http://localhost:3000/api/courses
+         curl -sS -o /dev/null -w "/admin=%{http_code}\n" http://localhost:3000/admin
+         curl -sS -o /dev/null -w "/admin/c/intro-nextjs/stats=%{http_code}\n" http://localhost:3000/admin/c/intro-nextjs/stats
+         # POST 也跑一次 submit 確認 201
+         ```
+         全部要 200/201,任何 4xx/5xx 是 FAIL。
+
+      5. **視覺驗證 (用 browser tool 開啟每頁)**:
+         - 載入每頁 → 截圖到 `screenshots/verify-*.png`
+         - 確認:
+           - 背景是米白 (--paper, #F5EFE2),不是白
+           - 主文字是深黑 (--ink, #0E0E0E),不是預設黑
+           - 標題字型是 serif (DM Serif Display 或 Noto Serif TC),不是 sans-serif
+           - 有看到浮水印 (右上角紅印章 CONCEPT · 設計提案)
+           - 章節標有「第 〇 課」「第 〇 章」中式編號
+           - 沒有任何「藍色」「漸層」「膠囊圓角」SaaS 風
+         - 對每張截圖給 1-2 句視覺判斷
+
+      6. **git log** 有 T2 commit。
+
+      ## 輸出
+      對每頁給 PASS/FAIL + 證據,最後整體 VERDICT。
+      FAIL 必須指出哪一頁缺什麼、該怎麼修。
+
+  # === T3: M7 證據 + 4 張截圖 ===
+  - id: m7-evidence
+    title: 'M7 證據文件 + 4 張截圖 + SPEC 驗收 audit table'
+    assigned_to: coder
+    depends_on: [page-redesign]
+    verified_by: verifier
+    max_retries: 1
+    prompt: |
+      你在 /Users/sean/.minimax/workspace/lms-train-m7/ 這個 worktree。
+      T1 + T2 已完成,所有 5 頁都是拾光風格,功能完整。
+
+      你的任務:寫 **M7-EVIDENCE.md**,這是 SPEC 終點里程碑的證據。
+
+      ## 必做事項
+
+      1. **跑完整 SPEC §驗收標準 的 8 項** (從 M6-EVIDENCE.md 抄格式,但重跑 T2 之後的版本):
+         - GET /
+         - GET /c/intro-nextjs
+         - GET /api/courses
+         - POST /api/courses
+         - POST /api/courses/intro-nextjs/submit
+         - GET /api/courses/intro-nextjs/stats
+         - GET /admin/c/intro-nextjs/stats
+         - GET /api/courses/nonexistent/stats (預期 404)
+
+         每項記錄: HTTP status、response size、關鍵字串 grep (e.g. "Next.js 入門介紹"、"拾光")。
+
+      2. **4 張精選截圖** (用 browser tool 或 webapp-testing skill):
+         - `screenshots/m7-01-home.png` (首頁,顯示課程列表 + 拾光風格)
+         - `screenshots/m7-02-quiz.png` (學員作答頁,顯示 YouTube + Email + 題目 + 燙金按鈕)
+         - `screenshots/m7-03-stats.png` (統計儀表板,顯示 KPI 卡 + 各題答對率)
+         - `screenshots/m7-04-result.png` (結果頁,顯示分數大字 + 每題對錯)
+         截圖要求:
+         - 1440x900 viewport
+         - 完整可見(不要只截一半)
+         - 真實 dev server 內容,不是 mock
+
+      3. **M7-EVIDENCE.md 結構**:
+         ```markdown
+         # M7 — 拾光風格重製證據
+
+         ## Production URL
+         (同 M6: lms-train-iota.vercel.app,本里程碑未重 deploy)
+
+         ## 設計系統
+         (簡述 DESIGN-SYSTEM.md 與 T1 落地)
+
+         ## 8 項 SPEC 驗收 (M7 重新跑)
+         (audit table,欄位:# / 項目 / 預期 / 實際 status / 證據)
+
+         ## 4 張截圖
+         ![首頁](screenshots/m7-01-home.png)
+         ![作答頁](screenshots/m7-02-quiz.png)
+         ![統計](screenshots/m7-03-stats.png)
+         ![結果](screenshots/m7-04-result.png)
+
+         ## 已知議題 (本次未處理)
+         - Next.js 14.2.18 security advisory (npm audit 顯示)
+         - Demo /tmp 持久化 cold-start 重置 (M6 evidence 已記載;Postgres 遷移待 M7 後)
+         - 浮水印 CONCEPT · 設計提案 為拾光設計提案版標記
+
+         ## SPEC 完成度
+         | # | 里程碑 | 狀態 |
+         |---|---|---|
+         | M1 | Skeleton | ✓ |
+         | M2 | 列表+影片 | ✓ |
+         | M3 | CRUD+表單 | ✓ |
+         | M4 | 作答+結果 | ✓ |
+         | M5 | 統計 | ✓ |
+         | M6 | Vercel 部署 | ✓ |
+         | M7 | 拾光重製+最終報告 | ✓ (本檔) |
+         ```
+
+      4. **更新根目錄 README.md** (或新增):
+         - 加一段「拾光設計提案版 (M7)」說明
+         - 指向 DESIGN-SYSTEM.md
+         - 指向 M7-EVIDENCE.md
+         - 註明此版本為提案浮水印 (CONCEPT 印章) 而非 production ready
+
+      5. **git commit**:
+         ```
+         git add -A
+         git commit -m "M7-T3: 最終報告 + 4 張截圖 + SPEC audit table
+
+         - M7-EVIDENCE.md: 8 項驗收 + 4 張截圖 + 已知議題 + SPEC 完成度
+         - screenshots/m7-*.png: 4 張 1440x900 精選截圖
+         - README.md: 加拾光設計提案版說明
+         "
+         ```
+
+      ## 交付回報
+      - 8 項 curl 結果
+      - 4 張截圖路徑與實際 file size
+      - M7-EVIDENCE.md 字數
+      - commit hash
+    verify_prompt: |
+      你在 /Users/sean/.minimax/workspace/lms-train-m7/ 這個 worktree。
+      獨立檢查 M7 證據。
+
+      ## 必查
+      1. **M7-EVIDENCE.md 存在** 且包含必要 sections:
+         - "## 8 項 SPEC 驗收" 或對等 audit table
+         - "## 4 張截圖" 含 4 個 `![...](screenshots/m7-*.png)` 引用
+         - "## SPEC 完成度" 表格 M1-M7 全 ✓
+         - 已知議題段 (Next.js security + /tmp)
+
+      2. **4 張截圖真實存在**:
+         ```
+         ls -la screenshots/m7-*.png
+         ```
+         每張 > 30KB (空圖/錯誤頁通常 < 10KB)
+
+      3. **截圖內容抽查** (用 browser tool 重新載入每頁,視覺確認 4 頁都符合拾光風格):
+         - 米白底 + 黑字 + 燙金點綴 + 紅印章浮水印
+         - 章節編號中式書卷感
+         - 沒有殘留舊風 (白底藍色圓角按鈕)
+
+      4. **8 項驗收都重跑**:
+         ```bash
+         cd /Users/sean/.minimax/workspace/lms-train-m7
+         npm run dev &; sleep 5
+         # 跑全部 8 個 curl,結果都對
+         ```
+
+      5. **README.md 更新過** (或新建,有指向 DESIGN-SYSTEM / M7-EVIDENCE)。
+
+      6. **git log** 有 T3 commit。
+
+      ## 輸出
+      PASS/FAIL + 證據,最後整體 VERDICT。
+      FAIL 指出缺什麼 (e.g. "M7-EVIDENCE.md 沒有 SPEC 完成度表格"、"截圖 m7-02 視覺還是舊風")。
+
+  # === T4: 最終 E2E 整合驗證 (verify-as-task) ===
+  - id: final-gate
+    title: '最終 E2E 整合驗證 (PASS/FAIL gate)'
+    role: verify-as-task
+    assigned_to: verifier
+    depends_on: [m7-evidence]
+    max_retries: 1
+    prompt: |
+      你是獨立的最終 gate。所有 T1-T3 已完成。
+      你要在 /Users/sean/.minimax/workspace/lms-train-m7/ 跑一次完整 E2E,
+      確認 SPEC 全部驗收標準在新設計下都成立。
+
+      ## 你的工作
+
+      1. **重跑 SPEC §驗收標準 的 3 大流程**:
+         - 老師建課:到 /admin,建一個測試課程,確認能成功,看截圖
+         - 學員作答:到 /c/[新課 id],留 Email,答 3 題,提交,跳結果頁
+         - 統計:到 /admin/c/[新課 id]/stats,確認新資料有進來
+
+      2. **重跑 M6 的 8 個 curl**,確認在 T2 改完後還能 200/201:
+         - 8 個 endpoint,4 個 2xx,1 個預期 404
+
+      3. **視覺抽查 5 頁**,用 browser tool 截圖對比拾光風格:
+         - /, /c/[id], /c/[id]/result/[subId], /admin, /admin/c/[id]/stats
+         - 每頁要有米白底、黑字、燙金、紅印章浮水印
+         - 字型是 serif (Noto Serif TC / DM Serif Display)
+         - 章節編號中式書卷感
+
+      4. **查 git log**:
+         - 至少有 T1 + T2 + T3 三個 commit
+         - 訊息符合 prompt 要求
+
+      5. **查 file size**:
+         - app/globals.css < 12KB
+         - DESIGN-SYSTEM.md 存在
+         - M7-EVIDENCE.md 存在且包含 audit table
+         - screenshots/m7-*.png 4 張都存在
+
+      6. **無 critical issue**:
+         - npm run typecheck 0 錯
+         - npm run build 成功
+         - 沒有任何 page 渲染出錯 (console 沒有 red error)
+         - 沒有 SECURITY 警告 (除了已知 Next.js 14.2.18 advisory)
+
+      ## 輸出
+      完整 audit report:
+      - 3 大流程: PASS/FAIL + 證據
+      - 8 個 curl: table
+      - 5 頁視覺: 每頁 1-2 句
+      - 最終 VERDICT: **PASS** 或 **FAIL**
+      - 若 FAIL,列出阻擋的 issue 與建議修法
