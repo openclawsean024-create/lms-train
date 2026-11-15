@@ -1,112 +1,136 @@
-# LMS Train — 線上教育訓練系統
+# 輕量教育訓練平台（lms-train）— 產品需求規格 v4.0
 
-## 目標
+> 版本：v4.0（評估與 PRD 重建）｜更新日期：2026-11-16｜狀態：文件重建，尚未依本版開發
+> 主 repo：`openclawsean024-create/lms-train`（預設分支 `main`，重建基準 commit `75038f9`）
+> 候選併入 repo：無
+> 取代：v3.0.2（2026-09-07）。舊版 M1–M7 里程碑仍可由 git 歷史查閱。
 
-最小可行的 LMS（MVP）：老師建課（影片 + 考題）→ 學員看課答題 → 系統統計成績。
+本文件的「已實作／部分／未實作」皆依 2026-11-16 閱讀 `main` 程式碼與 GitHub Actions 紀錄判斷。本機無法執行 node，**所有 lint／typecheck／test／build 皆未在本機執行**。
 
-**非會員可用**。部署到 Vercel 公開 URL。
+---
 
-## 角色
+## §0 評估結論
 
-| 角色 | 入口 | 動作 |
-|---|---|---|
-| **老師** | `/admin` | 建課（標題 + YouTube unlisted URL + 至少 3 題選擇題） |
-| **學員** | `/c/[id]` | 留 Email → 看影片 → 答題 → 看分數 |
-| **任何人** | `/` | 看課程列表 |
-
-## 資料模型
-
-```ts
-type Course = {
-  id: string;          // slug, e.g. "intro-nextjs"
-  title: string;
-  description: string;
-  youtubeUrl: string;  // unlisted YouTube embed URL
-  createdAt: number;
-  questions: Question[];
-};
-
-type Question = {
-  id: string;
-  prompt: string;
-  choices: string[];   // 4 choices
-  answerIndex: number; // 0..3
-};
-
-type Submission = {
-  id: string;
-  courseId: string;
-  email: string;
-  answers: number[];   // user-chosen indices
-  score: number;       // 0..100
-  perQuestion: { qid: string; correct: boolean }[];
-  at: number;
-};
-```
-
-## 頁面
-
-| 路徑 | 用途 |
+| 項目 | 結論 |
 |---|---|
-| `/` | 課程列表（標題 + 描述 + 開始學習） |
-| `/c/[id]` | 學員看課（YouTube iframe + Email 輸入 + 答題表單） |
-| `/c/[id]/result/[subId]` | 顯示分數 + 每題對錯 |
-| `/admin` | 老師建課表單（標題 + URL + 題目） |
-| `/admin/c/[id]/stats` | 統計（總作答數 / 平均分 / 各題答對率） |
+| 現況完成度 | **45 / 100**。「建課 → 看影片 → 答題 → 成績 → 統計」流程程式完整，但資料存在 serverless `/tmp`（冷啟動即消失）、無任何身分驗證、答案會外洩、零測試。 |
+| 獲利潛力 | **中**。企業內訓（新人訓、門市／加盟店產品教育、法遵課程）有付費意願與「留存訓練紀錄」需求；但替代品多（Google 表單 + YouTube 免費即可做到 80%），自建 SaaS 難差異化。 |
+| 目標客群 | 台灣 10–200 人、需要定期產品／作業流程訓練的中小企業、連鎖門市、加盟體系（例：門市銷售人員新品教育訓練）。 |
+| 獲利模式 | **專案建置**（為單一企業客製部署 + 年維護費）為主；驗證需求後再考慮 **SaaS 訂閱**（按學員數）。 |
+| 主要風險 | ① 競品與免費替代品多（待確認名單見 §3）；② 學員 Email 屬個資，需告知與保存期限；③ YouTube「不公開」影片可被轉傳，非真正權限控管；④ 目前無持久化，正式使用會遺失成績。 |
+| 建議 | **開發（限小範圍、先找 1 個試用客戶）**。程式基礎乾淨、技術風險低，M1 只需補持久化、管理端保護、答案不外洩與測試，即可成為可交付的專案建置底稿；若 M1 完成後 60 天內找不到試用單位，改為暫緩。 |
+| 與其他產品重疊 | 本批其他 3 個工具無功能重疊。第一批 10 個產品清單本 brief 未提供，重疊情形待確認。 |
 
-## API 路由
+---
 
-| Method | Path | 用途 |
+## 1. 問題
+
+1. 中小企業與連鎖門市要做產品／流程教育訓練，常用「LINE 丟影片 + Google 表單考試」，**無法對應「誰看了、誰考過、哪題最多人錯」**。
+2. 專業 LMS（TronClass、Moodle 等，待確認）對 50 人以下單位過重，導入與維護成本高。
+3. 主管需要一頁就看懂：完成率、平均分數、各題答對率，用來調整訓練內容。
+
+## 2. 目標客群與使用者
+
+| 角色 | 描述 | 主要任務 |
 |---|---|---|
-| GET | `/api/courses` | 列出所有課程 |
-| POST | `/api/courses` | 建立新課程 |
-| GET | `/api/courses/[id]` | 取得單一課程 |
-| POST | `/api/courses/[id]/submit` | 學員收卷 |
-| GET | `/api/submissions/[id]` | 取得單次作答 |
-| GET | `/api/courses/[id]/stats` | 統計 |
+| 訓練管理者（付費者） | HR、門市督導、品牌教育訓練負責人 | 建課、指派、看統計、匯出成績 |
+| 學員 | 門市人員、新進員工 | 看影片、答題、看成績 |
+| 平台管理者 | Sean（專案建置交付者） | 部署、建立管理者帳號 |
 
-## 儲存
+## 3. 競品與差異
 
-**Demo 模式**（Vercel serverless 限制）：
-
-- 靜態種子資料隨 repo commit（`data/seed.json`，含 1 個範例課程）
-- API 寫入 Vercel runtime `/tmp/data.json`（同 instance 持久）
-- Cold start 或新部署會重置使用者新增的資料，**首頁明示**
-- 7 天後考慮遷移至 Vercel KV / Neon Postgres
-
-## 驗收標準（MUST-HAVE）
-
-1. 公開 Vercel URL → HTTP 200
-2. 完整流程可走通：
-   - 老師到 `/admin` 建課（標題 + YouTube unlisted URL + 至少 3 題選擇題）
-   - 學員到 `/c/[id]` 留 Email → 看影片 → 答題
-   - 學員到 `/c/[id]/result/[subId]` 看分數 + 每題對錯
-   - 任何人到 `/admin/c/[id]/stats` 看統計（總作答數、平均分、各題答對率）
-3. 所有結果有 curl + 瀏覽器實測證據
-
-## 禁用
-
-- ❌ 會員制 / 登入 / OAuth
-- ❌ LLM 評分 / AI 評 essay
-- ❌ 影片上傳（用 YouTube embed）
-- ❌ 金流 / 訂閱
-- ❌ residence 認證
-
-## 技術棧
-
-- Next.js 14（App Router）+ TypeScript
-- React 18
-- 純 CSS modules（不引外部 UI lib）
-- Vercel 部署
-
-## 里程碑
-
-| # | 名稱 | 驗收 |
+| 競品／替代品 | 類型 | 本產品差異假設 |
 |---|---|---|
-| M1 | Skeleton + SPEC | Repo 創好, `npm run dev` 200 OK |
-| M2 | 課程列表 + 影片播放頁 | `curl /` 200 含 1 個課程; `curl /c/[id]` 200 含 YouTube iframe |
-| M3 | 考題 CRUD + 老師建課表單 | `POST /api/courses` 201; 表單可用 |
-| M4 | 學員作答 + 結果頁 | `POST /api/courses/[id]/submit` 回 `{score, perQuestion}` |
-| M5 | 統計 API + 儀表板 | `GET /api/courses/[id]/stats` 回 `{total, avg, perQuestion}` |
-| M6 | Vercel 部署 + 煙霧測試 | 公開 URL 200 + 走完整流程 |
-| M7 | 最終報告 + 截圖 | audit table + 4 張截圖 |
+| Google 表單 + YouTube | 免費替代品 | 影片與考題綁在一起、自動統計各題答對率、成績可追溯 |
+| Moodle | 開源 LMS | 輕量、免維運、繁中介面 |
+| TronClass、1Know、Hahow for Business | 台灣 LMS／企業學習平台（定位待確認） | 小團隊可當天上線、價格低（價格待確認） |
+
+競品價格、市占、功能範圍皆**待確認**，未查證前不得引用為事實。
+
+## 4. 功能需求
+
+狀態：已實作／部分／未實作（皆在 `lms-train`）。
+
+| FR | 需求 | 優先 | 狀態 | 說明（以程式為準） |
+|---|---|---|---|---|
+| FR-001 | 課程列表 | P0 | 已實作 | `/` 伺服器端讀 `listCourses()` |
+| FR-002 | 建課（標題、描述、YouTube embed URL、≥3 題四選一） | P0 | 已實作 | `/admin` + `POST /api/courses`，有欄位驗證 |
+| FR-003 | 學員看影片 + 答題 | P0 | 部分 | `/c/[id]` 可用；**`GET /api/courses/[id]` 回傳含 `answerIndex` 的完整題目，學員在瀏覽器即可看到正解** |
+| FR-004 | 自動評分 + 結果頁 | P0 | 已實作 | `POST /api/courses/[id]/submit` 計分；結果頁顯示每題對錯 |
+| FR-005 | 課程統計（作答數、平均、各題答對率） | P0 | 已實作 | `/admin/c/[id]/stats`、`GET /api/courses/[id]/stats` |
+| FR-006 | 資料持久化 | P0 | 未實作 | 寫入 `/tmp/lms-train-data.json`，冷啟動／重新部署即遺失 |
+| FR-007 | 管理端保護（建課、統計需登入） | P0 | 未實作 | `/admin`、`/api/courses` POST、統計頁皆公開 |
+| FR-008 | 學員成績明細與 CSV 匯出 | P0 | 未實作 | 統計只有彙總，無逐人清單 |
+| FR-009 | 學員身分與個資告知 | P0 | 部分 | 只收 Email，無告知文字、無刪除機制 |
+| FR-010 | 課程編輯／下架 | P1 | 未實作 | 只能新增 |
+| FR-011 | 及格分數與重考次數 | P1 | 未實作 | — |
+| FR-012 | 指派名單與完成率 | P1 | 未實作 | — |
+| FR-013 | 影片觀看完成度 | P2 | 未實作 | YouTube iframe 無觀看追蹤 |
+| FR-014 | 多組織（SaaS 化） | P2 | 未實作 | 驗證需求後才做 |
+
+小計：已實作 4、部分 2、未實作 8。
+
+## 5. 非功能需求
+
+- 效能：課程頁首次載入 < 2 秒（4G），統計頁 500 筆作答內 < 1 秒。
+- 可用性：手機寬 360px 可完成答題。
+- 安全：答案不可在作答前送到瀏覽器；管理端需驗證；API 需輸入長度上限。
+- 可維護性：lint、typecheck、test、build 在 CI 失敗時必須擋住合併。
+
+## 6. 資料與個資處理
+
+| 資料 | 等級 | 處理 |
+|---|---|---|
+| 學員 Email | 一般個資 | 作答前顯示蒐集目的告知；管理者可刪除單一學員紀錄；保存期限由客戶設定（預設待確認） |
+| 作答與分數 | 一般 | 僅管理者可看逐人資料；學員只能看自己的結果頁 |
+| 課程內容 | 客戶資產 | 影片託管在客戶自己的 YouTube 帳號 |
+
+範例資料一律用 `@example.com` Email；不得放入真實員工資料。
+
+## 7. 法規與風險
+
+| 風險 | 說明 | 對策 |
+|---|---|---|
+| 個資法 | Email、成績屬個資 | 告知、最小蒐集、可刪除、存取限管理者 |
+| 平台條款 | YouTube 嵌入需遵守 YouTube 服務條款；「不公開」影片非權限控管 | 文件明示；高機密內容改用私有影片託管（M3 評估） |
+| 競品 | 免費替代品強 | 專案建置先行，不先投入 SaaS 行銷 |
+| 資料遺失 | 目前 `/tmp` 儲存 | M1 改為可持久化儲存 |
+
+## 8. 里程碑
+
+| 里程碑 | 內容 | 完成條件 |
+|---|---|---|
+| **M1** 可交付底稿 | 品質閘門、答案不外洩、資料持久化（可替換 adapter）、管理端保護、逐人成績與 CSV 匯出、個資告知 | `GOAL.md` AC 全部通過 |
+| M2 試用 | 1 個試用單位、課程編輯／下架、及格與重考、指派與完成率 | 試用單位 ≥ 20 位學員完成 ≥ 1 門課 |
+| M3 商品化 | 報價與合約範本、多組織評估、影片託管選項 | 1 份付費專案或決定暫緩 |
+
+## 9. 成功指標
+
+- M1：AC 全通過；CI 能擋住失敗。
+- M2：試用單位課程完成率 ≥ 70%；管理者每週查看統計 ≥ 1 次。
+- M3：至少 1 個付費專案（金額待確認）。
+
+## 10. 合併清單
+
+無候選併入 repo。`m7/design-system-brief` 分支（open PR #1，只新增 `DESIGN-SYSTEM.md` 與 `.minimax/plans/plan.yaml`）不在本次重建範圍，去留待 Sean 決定。
+
+## 11. README 與程式不符清單
+
+repo 沒有 README；以下比對舊 `PRD/SPEC.md`、`PRD/CHANGELOG.md`、`M6-EVIDENCE.md` 與程式：
+
+| 文件說法 | 程式實況 |
+|---|---|
+| CHANGELOG：「GHA 4 jobs：lint／test／build／deploy」 | lint 設 `continue-on-error`；test 為 `npm test ... \|\| echo "no test script"`（沒有 test script 也通過）；build `continue-on-error`；deploy 到 GitHub Pages 但 Next 不產生 `dist/`，最近一次 run（2026-09-07）deploy job 失敗 |
+| 舊 SPEC：「純 CSS modules」 | 實際為單一 `app/globals.css` 全域樣式 |
+| 舊 SPEC 驗收：「所有結果有 curl + 瀏覽器實測證據」 | `M6-EVIDENCE.md` 記錄 2026-09 Vercel smoke test；本次未重新驗證 production URL |
+| `package.json` `lint` = `next lint` | repo 無 ESLint 設定與 `eslint` 依賴，`next lint` 實際行為未在本機執行 |
+| 舊 SPEC：「首頁明示 cold start 會重置」 | 首頁文字寫「下次部署後重置」，未提冷啟動 |
+| 同時存在 `package-lock.json` 與 `pnpm-lock.yaml` | CI 用 npm，pnpm lock 未使用 |
+
+## 12. 待決事項
+
+1. 是否同意「開發（限專案建置）」；是否已有可試用單位。
+2. M1 持久化選型：Vercel Postgres／Neon／Supabase／SQLite（自架）擇一。
+3. 管理端驗證方式：單一管理密碼（環境變數）或 Email magic link。
+4. `m7/design-system-brief` 分支與 PR #1 去留。
+5. production URL（`M6-EVIDENCE.md` 記載）是否繼續公開；目前任何人可在上面建課。
